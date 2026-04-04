@@ -4,6 +4,7 @@ import pandas as pd
 import requests
 import json
 import re
+#import missingno as msmo
 
 from utils import (
     normalize_text,
@@ -216,7 +217,72 @@ class NBAScraping():
 
         self.data.append(product)
     
-    
+    def analyze_data(self):
+        df = pd.DataFrame(self.data)
+
+        logger.info(f"Total de registros: {len(df)}")
+
+        missing = (df.isnull().mean() * 100).sort_values(ascending=False)
+        logger.info(f"Valores faltantes (%):\n{missing}")
+
+        if 'sku' in df.columns:
+            duplicados = df.duplicated(subset='sku').sum()
+            logger.info(f"Duplicatas encontradas (SKU): {duplicados}")
+
+        if 'value' in df.columns:
+            outliers = df[df['value'] <= 0]
+            logger.info(f"Outliers de preço (<=0): {len(outliers)}")
+
+
+    def clean_data(self):
+        df = pd.DataFrame(self.data)
+
+        logger.info(f"Dados antes da limpeza: {len(df)} registros")
+
+        df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
+
+        logger.info("Iniciando limpeza do campo SKU...")
+        df['sku'] = (
+            df['sku']
+            .fillna('')
+            .str.replace(r'[^A-Za-z0-9\-]', '', regex=True)
+            .str.upper()
+        )
+
+        antes_tratamento = len(df)
+        df = df[df['sku'] != '']           
+        df = df.drop_duplicates('sku')
+        depois_tratamento = len(df)
+
+        logger.info(f"Duplicadas removidas: {antes_tratamento - depois_tratamento} registros")
+
+        logger.info("Removendo espaços e padronizando texto...")
+        for col in df.columns:
+            if df[col].dtype == 'object':
+                df[col] = df[col].astype(str).str.strip().str.title()
+
+        logger.info("Convertendo dados numéricos...")
+        if 'value' in df.columns:
+            df['value'] = pd.to_numeric(df['value'], errors='coerce').fillna(0)
+
+        if 'media_rating' in df.columns:
+            df['media_rating'] = pd.to_numeric(df['media_rating'], errors='coerce').fillna(0.0)
+
+        if 'number_reviews' in df.columns:
+            df['number_reviews'] = pd.to_numeric(df['number_reviews'], errors='coerce').fillna(0).astype(int)
+
+        if 'value' in df.columns:
+            outliers = df[df['value'] <= 0]
+            logger.info(f"Produtos com preço inválido (<=0): {len(outliers)}")
+
+        df = df.reset_index(drop=True)
+
+        logger.info(f"Total de registros após limpeza: {len(df)}")
+
+        self.data = df.to_dict(orient='records')
+
+
+
     def upload_product(self):
         df = pd.DataFrame(self.data)
         
